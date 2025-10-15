@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Weekly Trainer — Entry</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>Weekly Trainer — Entry</h1>
+    <nav><a href="index.html">Overview</a></nav>
+    <button id="dark-toggle" aria-label="Toggle dark mode">🌙</button>
+  </header>
+
+  <main class="container">
+    <!-- Choose / Create Week -->
+    <section class="panel">
+      <h2>Choose / create this week</h2>
+
+      <div class="row">
+        <label>Existing weeks:
+          <select id="week-select">
+            <option value="">Loading…</option>
+          </select>
+        </label>
+        <button id="use-week">Use selected week</button>
+      </div>
+
+      <div class="row">
+        <label>Week start (Monday):
+          <input type="date" id="week-start" />
+        </label>
+        <button id="ensure-week">Create/Select Week</button>
+        <span class="small" id="ensure-status"></span>
+      </div>
+    </section>
+
+    <!-- Quick Weight -->
+    <section class="panel">
+      <h2>Quick weight log</h2>
+      <div class="row">
+        <input id="weight-user" type="text" placeholder="Name (optional)" />
+        <select id="weight-day">
+  <option value="">Select day</option>
+  <option>Mon</option>
+  <option>Tue</option>
+  <option>Wed</option>
+  <option>Thu</option>
+  <option>Fri</option>
+  <option>Sat</option>
+  <option>Sun</option>
+</select>
+
+        <input id="weight-date" type="date" />
+        <input id="weight-value" type="number" step="0.1" placeholder="Weight" />
+        <button id="weight-send">Log weight</button>
+        <span class="small" id="weight-status"></span>
+      </div>
+    </section>
+
+    <!-- Day Editor (8 slots: 1–6 + Deadhangs, Burpees) -->
+    <section class="panel">
+      <h2>Day editor (8 slots: 1–6 + Deadhangs, Burpees)</h2>
+      <div class="row">
+        <label>Day:
+          <select id="ex-day">
+            <option>Monday</option>
+            <option>Wednesday</option>
+            <option>Friday</option>
+          </select>
+        </label>
+        <input id="ex-date" type="date" />
+        <span class="small">Slots 7 and 8 are fixed to Deadhangs and Burpees.</span>
+      </div>
+
+      <div class="table-wrap">
+        <table id="ex-table">
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Exercise</th>
+              <th>Variation</th>
+              <th>Sets</th>
+              <th>Reps</th>
+              <th>Weight</th>
+              <th>RPE</th>
+              <th>Notes</th>
+              <th>Done</th>
+            </tr>
+          </thead>
+          <tbody><!-- filled by app.js --></tbody>
+        </table>
+      </div>
+
+      <div class="row">
+        <button id="write-day-cells">Write day to sheet</button>
+        <button id="log-day">Append all to Exercises log</button>
+        <span class="small" id="ex-status"></span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>Edits are saved to your Google Sheet</small>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    initTheme();
+    initEntryPage();
+  </script>
+</body>
+</html>

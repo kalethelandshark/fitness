@@ -1,0 +1,49 @@
+{
+  "week_start":"2025-10-13",
+  "days": {
+    "Monday": {
+      "date":"2025-10-13",
+      "session":"Full",
+      "exercises":[
+        {"name":"Pullup (Bands)","sets":"1","reps":"9","notes":"R+B RPE 8"},
+        {"name":"Dip (Normal)","sets":"1","reps":"8","notes":"BW RPE 8"},
+        {"name":"Pike Pushup (Normal)","sets":"1","reps":"8","notes":"BW RPE 9"},
+        {"name":"Back Row (Normal)","sets":"1","reps":"5","notes":"BW RPE 8"},
+        {"name":"Assisted Pistol (Normal)","sets":"1","reps":"5","notes":"BW RPE 6"},
+        {"name":"L Raises (Normal)","sets":"1","reps":"4","notes":"BW RPE 7"},
+        {"name":"Deadhangs","sets":"1","reps":"24s","notes":"BW"},
+        {"name":"Burpees","sets":"1","reps":"","notes":""}
+      ]
+    },
+    "Wednesday": {
+      "date":"2025-10-15",
+      "session":"Full",
+      "exercises":[
+        {"name":"Deadhangs","sets":"1","reps":"","notes":""},
+        {"name":"Burpees","sets":"1","reps":"","notes":""}
+      ]
+    },
+    "Friday": {
+      "date":"2025-10-17",
+      "session":"Full",
+      "exercises":[
+        {"name":"Deadhangs","sets":"1","reps":"","notes":""},
+        {"name":"Burpees","sets":"1","reps":"","notes":""}
+      ]
+    }
+  },
+  "weight_tracker":[
+    {"day":"Mon","date":"2025-10-13","weight":"162.2"},
+    {"day":"Tue","date":"2025-10-14","weight":"161.4"},
+    {"day":"Wed","date":"2025-10-15","weight":""},
+    {"day":"Thu","date":"2025-10-16","weight":""},
+    {"day":"Fri","date":"2025-10-17","weight":""},
+    {"day":"Sat","date":"2025-10-18","weight":""},
+    {"day":"Sun","date":"2025-10-19","weight":""}
+  ],
+  "exercise_list":[
+    "Pushup","Dip","Pike Pushup","Elevated Pike","Wall HSPU","Pullup","Chinup",
+    "Back Row","Back Row Elevated","Tuck Lever","Front Lever","Squat","Assisted Pistol",
+    "Deadhangs","Pistol Squat","Ab Wheel","Knee Raises","L Raises","Burpees"
+  ]
+}

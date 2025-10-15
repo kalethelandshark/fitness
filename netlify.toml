@@ -1,0 +1,8 @@
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Optional: allow large bodies (uploads)
+#[functions."gas-proxy"]
+#  timeout = 10
+#  memory = 256

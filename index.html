@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Weekly Trainer — Overview</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>Weekly Trainer — Overview</h1>
+    <nav><a href="entry.html">Enter data</a></nav>
+    <button id="dark-toggle" aria-label="Toggle dark mode">🌙</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <h2>Recent weeks</h2>
+      <div id="weeks" class="grid"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>Powered by Google Sheets</small>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    initTheme();
+    loadOverview();
+  </script>
+</body>
+</html>
