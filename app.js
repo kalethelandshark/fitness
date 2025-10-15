@@ -1,23 +1,23 @@
 /***** CONFIG *****/
-const SHEET_WEBAPP = "/.netlify/functions/gas-proxy"; // proxy → GAS /exec
+const SHEET_WEBAPP = "/.netlify/functions/gas-proxy"; // Netlify proxy → GAS /exec
+const DEV_VERBOSE_ERRORS = true; // set false to restore silent fallback later
 
-/* WEEK_TEMPLATE layout from your screenshot:
-   Monday rows:     7..14   (7-12 main, 13 Deadhangs, 14 Burpees)
+/* Week layout your UI uses:
+   Monday rows:     7..14  (7-12 main, 13 Deadhangs, 14 Burpees)
    Wednesday rows:  18..25
    Friday rows:     29..36
    Columns B..I: B=Exercise, C=Variation, D=Sets, E=Reps, F=Weight, G=RPE, H=Notes, I=Done
 */
-const DAY_ROW_BASE = { Monday: 7, Wednesday: 18, Friday: 29 }; // slot 1 row for each day
-const SLOTS_PER_DAY = 8; // 1-6 regular + 7 Deadhangs + 8 Burpees
+const DAY_ROW_BASE = { Monday: 7, Wednesday: 18, Friday: 29 };
+const SLOTS_PER_DAY = 8;
 const COLS = { exercise:'B', variation:'C', sets:'D', reps:'E', weight:'F', rpe:'G', notes:'H', done:'I' };
 
-// Exercise list (used for slots 1-6)
+// Exercise list (slots 1–6). 7=Deadhangs, 8=Burpees fixed.
 const EXERCISES = [
   "Pushup","Dip","Pike Pushup","Elevated Pike","Wall HSPU","Pullup","Chinup",
   "Back Row","Back Row Elevated","Tuck Lever","Front Lever","Squat","Assisted Pistol",
   "Pistol Squat","Ab Wheel","Knee Raises","L Raises"
 ];
-// Slots 7-8 fixed:
 const FIXED_SLOT7 = "Deadhangs";
 const FIXED_SLOT8 = "Burpees";
 
@@ -34,7 +34,7 @@ function initTheme(){
   }
 }
 
-/***** Overview (index.html) *****/
+/***** OVERVIEW (index.html) *****/
 async function loadOverview(){
   const wrap = document.getElementById('weeks');
   wrap.innerHTML = 'Loading…';
@@ -60,65 +60,52 @@ async function loadOverview(){
       wrap.textContent = 'No weeks yet. Head to the entry page to create your first week.';
     }
   }catch(err){
-    wrap.textContent = 'Failed to load overview.';
     console.error(err);
+    wrap.textContent = 'Failed to load overview.';
   }
 }
 
-/***** Entry (entry.html) *****/
+/***** ENTRY (entry.html) *****/
 function initEntryPage(){
-  // Default date = most recent Monday
+  // default the Week input to this week's Monday
   const today = new Date();
   const monday = new Date(today);
-  const day = monday.getDay(); // 0=Sun
-  const diffToMon = (day+6)%7;
-  monday.setDate(monday.getDate() - diffToMon);
-  document.getElementById('week-start').value = toISODate(monday);
+  monday.setDate(today.getDate() - ((today.getDay()+6)%7));
+  const wkISO = toISODate(monday);
+  const weekInput = document.getElementById('week-start');
+  if (weekInput) weekInput.value = wkISO;
 
-  // dropdown of existing weeks
+  // populate existing weeks
   loadWeeksForEntry();
 
   // wire actions
-  document.getElementById('ensure-week').addEventListener('click', ensureWeek);
-  document.getElementById('weight-send').addEventListener('click', sendWeight);
+  byId('ensure-week').addEventListener('click', ensureWeek);
+  byId('weight-send').addEventListener('click', sendWeight);
+  byId('write-day-cells').addEventListener('click', writeWholeDayToSheet);
+  byId('log-day').addEventListener('click', logWholeDay);
 
-  // Build the 8-row day table
-  buildDayTable();
-
-  // Buttons to write/log the whole day
-  document.getElementById('write-day-cells').addEventListener('click', writeWholeDayToSheet);
-  document.getElementById('log-day').addEventListener('click', logWholeDay);
-
-  // “Use selected week”
-  document.getElementById('use-week').addEventListener('click', ()=>{
-    const sel = document.getElementById('week-select');
+  // Use selected week dropdown → copies date to input
+  byId('use-week').addEventListener('click', ()=>{
+    const sel = byId('week-select');
     const name = sel.value;
     if(!name) return;
-    document.getElementById('week-start').value = isoFromWeekName(name);
-    const status = document.getElementById('ensure-status');
-    status.textContent = `selected: ${name}`;
-    setTimeout(()=> status.textContent = '', 2000);
+    weekInput.value = isoFromWeekName(name);
+    setStatus('ensure-status', `selected: ${name}`, 2000);
   });
-  document.getElementById('week-select').addEventListener('change', (e)=>{
+  byId('week-select').addEventListener('change', (e)=>{
     const name = e.target.value;
-    if(name) document.getElementById('week-start').value = isoFromWeekName(name);
+    if(name) weekInput.value = isoFromWeekName(name);
   });
 
-  // Optional: quick connectivity check in console
+  // Build table
+  buildDayTable();
+
+  // optional: console check
   checkConnection().catch(()=>{});
 }
 
-function toISODate(d){
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const day = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
-}
-function weekdayLabel(d){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] }
-function isoFromWeekName(name){ return name.replace(/^Week\s+/, '').trim(); }
-
 async function loadWeeksForEntry(){
-  const sel = document.getElementById('week-select');
+  const sel = byId('week-select');
   try{
     const res = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=200`);
     const json = await ensureJSON(res);
@@ -142,40 +129,33 @@ async function loadWeeksForEntry(){
 }
 
 async function ensureWeek(){
-  const wk = document.getElementById('week-start').value;
-  const status = document.getElementById('ensure-status');
-  if(!wk){ status.textContent='pick a Monday date'; return; }
-  status.textContent = 'creating…';
+  const wk = byId('week-start').value;
+  const status = 'ensure-status';
+  if(!wk){ setStatus(status,'pick a Monday date'); return; }
+  setStatus(status,'creating…');
   try{
     await postJSON({type:'ensure_week', week_start: wk});
-    const name = `Week ${wk}`;
-    status.textContent = `ready: ${name}`;
+    setStatus(status, `ready: Week ${wk}`, 2000);
     await loadWeeksForEntry();
-    const sel = document.getElementById('week-select');
-    Array.from(sel.options).forEach(opt=>{
-      if(opt.value === name) sel.value = name;
-    });
+    // select in dropdown if present
+    const sel = byId('week-select');
+    [...sel.options].forEach(o => { if (o.value === `Week ${wk}`) sel.value = o.value; });
   }catch(e){
-    status.textContent = 'error';
     console.error(e);
-  } finally {
-    setTimeout(()=> status.textContent='', 2500);
+    setStatus(status,'error');
   }
 }
 
-/***** Day Table (8 slots) *****/
 function buildDayTable(){
   const tbody = document.querySelector('#ex-table tbody');
   tbody.innerHTML = '';
   for(let slot=1; slot<=SLOTS_PER_DAY; slot++){
     const tr = document.createElement('tr');
 
-    // Slot number
     const tdSlot = document.createElement('td');
     tdSlot.textContent = slot;
     tr.appendChild(tdSlot);
 
-    // Exercise (dropdown for 1-6, fixed text for 7-8)
     const tdEx = document.createElement('td');
     if(slot<=6){
       const sel = document.createElement('select');
@@ -184,15 +164,13 @@ function buildDayTable(){
       tdEx.appendChild(sel);
     }else{
       const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.readOnly = true;
+      inp.type = 'text'; inp.readOnly = true;
       inp.value = (slot===7? FIXED_SLOT7 : FIXED_SLOT8);
       inp.id = `slot${slot}-exercise`;
       tdEx.appendChild(inp);
     }
     tr.appendChild(tdEx);
 
-    // Variation
     const tdVar = document.createElement('td');
     const varSel = document.createElement('select');
     varSel.innerHTML = `<option>Normal</option><option>Bands</option><option>Elevated</option><option>Assisted</option>`;
@@ -200,56 +178,44 @@ function buildDayTable(){
     tdVar.appendChild(varSel);
     tr.appendChild(tdVar);
 
-    // Sets, Reps, Weight, RPE, Notes, Done
     tr.appendChild(simpleCell(`slot${slot}-sets`, 'number'));
     tr.appendChild(simpleCell(`slot${slot}-reps`, 'text'));
     tr.appendChild(simpleCell(`slot${slot}-weight`, 'text'));
     tr.appendChild(simpleCell(`slot${slot}-rpe`, 'number'));
     tr.appendChild(simpleCell(`slot${slot}-notes`, 'text'));
+
     const tdDone = document.createElement('td');
     const chk = document.createElement('input');
-    chk.type = 'checkbox'; chk.id = `slot${slot}-done`;
-    tdDone.appendChild(chk); tr.appendChild(tdDone);
+    chk.type='checkbox'; chk.id=`slot${slot}-done`;
+    tdDone.appendChild(chk);
+    tr.appendChild(tdDone);
 
     tbody.appendChild(tr);
   }
 }
-function simpleCell(id, type){
-  const td = document.createElement('td');
-  const inp = document.createElement('input');
-  inp.type = type; inp.id = id;
-  td.appendChild(inp);
-  return td;
-}
 
-/***** Write whole day to Week sheet (B..I) *****/
 async function writeWholeDayToSheet(){
-  const wkISO = document.getElementById('week-start').value;
-  const sheet = `Week ${wkISO}`;
-  const dayName = document.getElementById('ex-day').value; // Monday/Wednesday/Friday
-  const status = document.getElementById('ex-status');
-
-  if(!wkISO){ status.textContent='set week'; return; }
-
+  const wkISO = byId('week-start').value;
+  const dayName = byId('ex-day').value;
+  const status = 'ex-status';
+  if(!wkISO){ setStatus(status,'set week'); return; }
   const baseRow = DAY_ROW_BASE[dayName];
-  if(!baseRow){ status.textContent='bad day'; return; }
+  if(!baseRow){ setStatus(status,'bad day'); return; }
 
-  // Build A1 cell writes for all 8 slots
   const cells = [];
   for(let slot=1; slot<=SLOTS_PER_DAY; slot++){
     const row = baseRow + (slot-1);
-    const exercise = getVal(`slot${slot}-exercise`);
-    const variation = getVal(`slot${slot}-variation`);
-    const sets = getVal(`slot${slot}-sets`);
-    const reps = getVal(`slot${slot}-reps`);
-    const weight = getVal(`slot${slot}-weight`);
-    const rpe = getVal(`slot${slot}-rpe`);
-    const notes = getVal(`slot${slot}-notes`);
-    const done = document.getElementById(`slot${slot}-done`).checked;
+    const exercise  = val(`slot${slot}-exercise`);
+    const variation = val(`slot${slot}-variation`);
+    const sets      = val(`slot${slot}-sets`);
+    const reps      = val(`slot${slot}-reps`);
+    const weight    = val(`slot${slot}-weight`);
+    const rpe       = val(`slot${slot}-rpe`);
+    const notes     = val(`slot${slot}-notes`);
+    const done      = byId(`slot${slot}-done`).checked;
 
-    // Skip empty rows for 1-6
-    const isEmpty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
-    if(isEmpty && slot<=6) continue;
+    const empty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
+    if (slot <= 6 && empty) continue;
 
     cells.push({a1: a1(COLS.exercise, row),  value: exercise});
     cells.push({a1: a1(COLS.variation, row), value: variation});
@@ -258,129 +224,127 @@ async function writeWholeDayToSheet(){
     cells.push({a1: a1(COLS.weight, row),    value: weight});
     cells.push({a1: a1(COLS.rpe, row),       value: rpe});
     cells.push({a1: a1(COLS.notes, row),     value: notes});
-    cells.push({a1: a1(COLS.done, row),      value: done ? true : false});
+    cells.push({a1: a1(COLS.done, row),      value: !!done});
   }
 
-  status.textContent = 'writing…';
+  setStatus(status,'writing…');
   try{
-    await postJSON({type:'write_cells', sheet, cells});
-    status.textContent = 'day saved ✓';
+    await postJSON({type:'write_cells', sheet:`Week ${wkISO}`, cells});
+    setStatus(status,'day saved ✓', 2000);
   }catch(e){
-    console.error(e);
-    status.textContent = 'error';
-  }finally{
-    setTimeout(()=> status.textContent='', 2500);
+    console.error(e); setStatus(status,'error');
   }
 }
 
-/***** Append whole day to Exercises log (batch) *****/
 async function logWholeDay(){
-  const status = document.getElementById('ex-status');
-  const week_start = document.getElementById('week-start').value; // Monday ISO
-  const dayLabel   = document.getElementById('ex-day').value;     // Monday | Wednesday | Friday
-  const dateISO    = document.getElementById('ex-date').value || toISODate(new Date());
-
-  if(!week_start){ status.textContent = 'set week'; return; }
+  const status = 'ex-status';
+  const week_start = byId('week-start').value;
+  const dayLabel   = byId('ex-day').value;
+  const dateISO    = byId('ex-date').value || toISODate(new Date());
+  if(!week_start){ setStatus(status,'set week'); return; }
 
   const rows = [];
   for(let slot=1; slot<=SLOTS_PER_DAY; slot++){
-    const exercise  = getVal(`slot${slot}-exercise`);
-    const variation = getVal(`slot${slot}-variation`);
-    const sets      = getVal(`slot${slot}-sets`);
-    const reps      = getVal(`slot${slot}-reps`);
-    const weight    = getVal(`slot${slot}-weight`);
-    const rpe       = getVal(`slot${slot}-rpe`);
-    const notes     = getVal(`slot${slot}-notes`);
-    const done      = document.getElementById(`slot${slot}-done`).checked;
+    const exercise  = val(`slot${slot}-exercise`);
+    const variation = val(`slot${slot}-variation`);
+    const sets      = val(`slot${slot}-sets`);
+    const reps      = val(`slot${slot}-reps`);
+    const weight    = val(`slot${slot}-weight`);
+    const rpe       = val(`slot${slot}-rpe`);
+    const notes     = val(`slot${slot}-notes`);
+    const done      = byId(`slot${slot}-done`).checked;
 
     const empty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
     if (slot <= 6 && empty) continue;
 
-    rows.push({
-      week_start, day: dayLabel, date: dateISO, slot,
-      exercise, variation, sets, reps, weight, rpe, notes, done
-    });
+    rows.push({ week_start, day: dayLabel, date: dateISO, slot,
+      exercise, variation, sets, reps, weight, rpe, notes, done });
   }
+  if(rows.length === 0){ setStatus(status,'nothing to log'); return; }
 
-  if(rows.length === 0){ status.textContent = 'nothing to log'; return; }
-
-  status.textContent = 'logging…';
+  setStatus(status,'logging…');
   try{
-    await postJSON({ type: 'exercise_batch', rows });
-    status.textContent = 'logged ✓';
+    await postJSON({ type:'exercise_batch', rows });
+    setStatus(status,'logged ✓', 2000);
   }catch(e){
-    console.error(e);
-    status.textContent = 'error';
-  }finally{
-    setTimeout(()=> status.textContent = '', 2500);
+    console.error(e); setStatus(status,'error');
   }
 }
 
-/*** Weight logging (append to Weights) ***/
 async function sendWeight(){
-  const user = document.getElementById('weight-user').value.trim();
-  const day = document.getElementById('weight-day').value.trim() || weekdayLabel(new Date());
-  const date = document.getElementById('weight-date').value || toISODate(new Date());
-  const weight = document.getElementById('weight-value').value;
-  const status = document.getElementById('weight-status');
+  const user   = byId('weight-user').value.trim();
+  const day    = byId('weight-day').value.trim() || weekdayLabel(new Date());
+  const date   = byId('weight-date').value || toISODate(new Date());
+  const weight = byId('weight-value').value;
+  const status = 'weight-status';
 
-  if(!weight){ status.textContent='enter a weight'; return; }
-  status.textContent = 'logging…';
+  if(!weight){ setStatus(status,'enter a weight'); return; }
+  setStatus(status,'saving…');
   try{
-    await postJSON({type:'weight', user, day, date, weight});
-    status.textContent = 'saved ✓';
+    await postJSON({ type:'weight', user, day, date, weight });
+    setStatus(status,'saved ✓', 2000);
   }catch(e){
-    status.textContent = 'error';
-    console.error(e);
-  }finally{
-    setTimeout(()=> status.textContent='', 2500);
+    console.error(e); setStatus(status,'error');
   }
 }
 
-/*** helpers ***/
-function getVal(id){ const el = document.getElementById(id); return el ? (el.value ?? '').trim() : ''; }
-function a1(col, row){ return `${col}${row}`; }
+/***** HELPERS *****/
+function byId(id){ return document.getElementById(id); }
+function val(id){ const el = byId(id); return el ? (el.value ?? '').trim() : ''; }
+function a1(col,row){ return `${col}${row}`; }
+function toISODate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function weekdayLabel(d){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] }
+function isoFromWeekName(name){ return name.replace(/^Week\s+/, '').trim(); }
+function setStatus(id, msg, clearMs){
+  const el = byId(id); if(!el) return;
+  el.textContent = msg || '';
+  if (clearMs) setTimeout(()=>{ el.textContent=''; }, clearMs);
+}
 
+// Strict JSON checker (surfaces 500s instead of hiding them)
 async function ensureJSON(res){
   const ct = (res.headers.get('content-type') || '').toLowerCase();
   if (!ct.includes('application/json')) {
-    throw new Error(`Non-JSON response (status ${res.status})`);
+    const text = await res.text();
+    throw new Error(`Non-JSON response (status ${res.status}): ${text.slice(0,180)}`);
   }
   return res.json();
 }
 
-/*** robust POST with fallback ***/
+// Debug-friendly POST (no silent no-cors fallback while we’re fixing writes)
 async function postJSON(obj){
-  if(!SHEET_WEBAPP || SHEET_WEBAPP.startsWith('PASTE_')) {
-    throw new Error('SHEET_WEBAPP not set');
-  }
+  if(!SHEET_WEBAPP) throw new Error('SHEET_WEBAPP not set');
 
-  try {
-    const res = await fetch(SHEET_WEBAPP, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(obj),
-      credentials: 'omit'
-    });
+  const res = await fetch(SHEET_WEBAPP, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(obj),
+    credentials: 'omit'
+  });
+
+  if (DEV_VERBOSE_ERRORS) {
     const json = await ensureJSON(res);
-    if(!json.ok) throw new Error(json.error || 'request failed');
+    if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
     return json;
-  } catch (err) {
-    // Last-ditch fire-and-forget (opaque) — for local file:// cases
-    await fetch(SHEET_WEBAPP, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(obj),
-      credentials: 'omit'
-    });
-    return { ok: true, via: 'no-cors' };
+  } else {
+    try {
+      const json = await ensureJSON(res);
+      if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
+      return json;
+    } catch (_e) {
+      // optional: uncomment for silent fire-and-forget in production
+      // await fetch(SHEET_WEBAPP, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj) });
+      throw _e;
+    }
   }
 }
 
-/*** quick connectivity check (optional) ***/
 async function checkConnection(){
-  const res = await fetch(`${SHEET_WEBAPP}?ping=1`);
-  const j = await ensureJSON(res);
-  console.log("proxy:", j);
+  try{
+    const res = await fetch(`${SHEET_WEBAPP}?ping=1`);
+    const j = await ensureJSON(res);
+    console.log('proxy:', j);
+  }catch(e){
+    console.warn('proxy ping failed', e);
+  }
 }
