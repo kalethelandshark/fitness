@@ -1,5 +1,5 @@
 /***** CONFIG *****/
-const SHEET_WEBAPP = "https://script.google.com/macros/s/AKfycbyGmvccLBZ5z42d2-uiacDph24JJMaxBj2Pz3ZZaQ6rCmqpWu-f_SPHdUAc7z7fpbuC/exec";
+const SHEET_WEBAPP = "/.netlify/functions/gas-proxy";
 
 /* WEEK_TEMPLATE layout from your screenshot:
    Monday rows:     7..14   (7-12 main, 13 Deadhangs, 14 Burpees)
