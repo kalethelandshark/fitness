@@ -301,20 +301,46 @@ async function ensureJSON(res){
 async function postJSON(obj){
   if(!SHEET_WEBAPP) throw new Error('SHEET_WEBAPP not set');
 
-  const res = await fetch(SHEET_WEBAPP, {
+  // plain body; no duplex/keepalive (avoids Chrome’s “duplex” error)
+  const init = {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {'Content-Type':'application/json'},
     body: JSON.stringify(obj),
-    credentials: 'omit',
-    // 🔧 Chrome/Chromium now requires this when a body is present
-    duplex: 'half',
-    // optional, helps on tab-close navigations
-    keepalive: true,
-  });
+    credentials: 'omit'
+  };
 
-  const json = await ensureJSON(res);
-  if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
-  return json;
+  try {
+    const res = await fetch(SHEET_WEBAPP, init);
+    const json = await ensureJSON(res);
+    if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
+    return json;
+  } catch (e) {
+    // If Chrome/Edge still complains about "duplex", fall back to XHR
+    if (String(e).includes('duplex')) {
+      const json = await xhrJSON(SHEET_WEBAPP, init.body);
+      if (!json.ok) throw new Error(json.error || 'Request failed');
+      return json;
+    }
+    throw e;
+  }
+}
+
+function xhrJSON(url, body) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json;charset=utf-8');
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+      const ct = (xhr.getResponseHeader('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) {
+        return reject(new Error(`Non-JSON (status ${xhr.status}): ${xhr.responseText?.slice(0,180)}`));
+      }
+      try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(body);
+  });
 }
 
 async function checkConnection(){
