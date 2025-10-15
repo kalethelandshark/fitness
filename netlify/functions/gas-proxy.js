@@ -1,20 +1,35 @@
-// netlify/functions/gas-proxy.js
-const ALLOW_ORIGIN = "*"; // or "https://campheindel.netlify.app"
+// Netlify Function: CORS proxy -> Google Apps Script /exec
+const ALLOW_ORIGIN = "*"; // or set to your site origin
 
 export default async (req, context) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  // Preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
 
+  // Health check
   const inUrl = new URL(req.url);
-  if (inUrl.searchParams.get("ping")) return json({ ok: true, proxy: "ready" });
+  if (inUrl.searchParams.get("ping")) {
+    return json({ ok: true, proxy: "ready" });
+  }
 
   const target = process.env.GAS_EXEC_URL;
   if (!target) return json({ ok: false, error: "Missing GAS_EXEC_URL env var" }, 500);
 
-  // Build upstream URL and preserve query
+  // Build upstream URL (preserve query)
   const outUrl = new URL(target);
   if (inUrl.search) outUrl.search = inUrl.search;
 
-  // Minimal headers through
+  // ----- READ BODY INTO STRING (no streaming/duplex) -----
+  let bodyText = undefined;
+  if (!["GET", "HEAD"].includes(req.method)) {
+    try {
+      bodyText = await req.text(); // string, not stream
+    } catch {
+      bodyText = undefined;
+    }
+  }
+
   const headers = new Headers();
   const ct = req.headers.get("content-type");
   if (ct) headers.set("content-type", ct);
@@ -22,21 +37,21 @@ export default async (req, context) => {
   const init = {
     method: req.method,
     headers,
-    body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
+    body: ["GET", "HEAD"].includes(req.method) ? undefined : bodyText,
     redirect: "follow",
+    // DO NOT set duplex/keepalive here; we are sending a plain string body
   };
 
   try {
     const upstream = await fetch(outUrl.toString(), init);
 
-    // Read raw bytes so we control encoding headers
+    // Buffer upstream and NORMALIZE headers (avoid gzip decode issues)
     const buf = await upstream.arrayBuffer();
-
-    // Copy only safe headers; drop encodings that confuse the browser
     const safe = new Headers();
-    // Prefer upstream content-type or default to JSON
-    safe.set("content-type", upstream.headers.get("content-type") || "application/json; charset=utf-8");
-    // CORS
+    safe.set(
+      "content-type",
+      upstream.headers.get("content-type") || "application/json; charset=utf-8"
+    );
     addCors(safe);
 
     return new Response(buf, {
