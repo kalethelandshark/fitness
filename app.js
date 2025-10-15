@@ -1,10 +1,10 @@
 /***** CONFIG *****/
-const SHEET_WEBAPP = "/.netlify/functions/gas-proxy";
+const SHEET_WEBAPP = "/.netlify/functions/gas-proxy"; // proxy → GAS /exec
 
 /* WEEK_TEMPLATE layout from your screenshot:
    Monday rows:     7..14   (7-12 main, 13 Deadhangs, 14 Burpees)
-   Wednesday rows: 18..25
-   Friday rows:    29..36
+   Wednesday rows:  18..25
+   Friday rows:     29..36
    Columns B..I: B=Exercise, C=Variation, D=Sets, E=Reps, F=Weight, G=RPE, H=Notes, I=Done
 */
 const DAY_ROW_BASE = { Monday: 7, Wednesday: 18, Friday: 29 }; // slot 1 row for each day
@@ -34,14 +34,14 @@ function initTheme(){
   }
 }
 
-/***** OVERVIEW (index.html) *****/
+/***** Overview (index.html) *****/
 async function loadOverview(){
   const wrap = document.getElementById('weeks');
   wrap.innerHTML = 'Loading…';
   try{
     const url = `${SHEET_WEBAPP}?fn=overview&limit=8`;
     const res = await fetch(url);
-    const json = await res.json();
+    const json = await ensureJSON(res);
     if(!json.ok) throw new Error(json.error || 'overview error');
 
     wrap.innerHTML = '';
@@ -65,7 +65,7 @@ async function loadOverview(){
   }
 }
 
-/***** ENTRY (entry.html) *****/
+/***** Entry (entry.html) *****/
 function initEntryPage(){
   // Default date = most recent Monday
   const today = new Date();
@@ -103,6 +103,9 @@ function initEntryPage(){
     const name = e.target.value;
     if(name) document.getElementById('week-start').value = isoFromWeekName(name);
   });
+
+  // Optional: quick connectivity check in console
+  checkConnection().catch(()=>{});
 }
 
 function toISODate(d){
@@ -118,11 +121,10 @@ async function loadWeeksForEntry(){
   const sel = document.getElementById('week-select');
   try{
     const res = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=200`);
-    const json = await res.json();
-    if(!json.ok) throw new Error(json.error || 'overview failed');
+    const json = await ensureJSON(res);
 
     sel.innerHTML = '';
-    if(!json.weeks || json.weeks.length === 0){
+    if(!json.ok || !json.weeks || json.weeks.length === 0){
       sel.innerHTML = `<option value="">No weeks yet</option>`;
       return;
     }
@@ -161,19 +163,19 @@ async function ensureWeek(){
   }
 }
 
-/***** DAY TABLE (8 slots) *****/
+/***** Day Table (8 slots) *****/
 function buildDayTable(){
   const tbody = document.querySelector('#ex-table tbody');
   tbody.innerHTML = '';
   for(let slot=1; slot<=SLOTS_PER_DAY; slot++){
     const tr = document.createElement('tr');
 
-    // Slot
+    // Slot number
     const tdSlot = document.createElement('td');
     tdSlot.textContent = slot;
     tr.appendChild(tdSlot);
 
-    // Exercise (dropdown for 1-6, fixed for 7-8)
+    // Exercise (dropdown for 1-6, fixed text for 7-8)
     const tdEx = document.createElement('td');
     if(slot<=6){
       const sel = document.createElement('select');
@@ -220,7 +222,7 @@ function simpleCell(id, type){
   return td;
 }
 
-/***** WRITE WHOLE DAY TO SHEET *****/
+/***** Write whole day to Week sheet (B..I) *****/
 async function writeWholeDayToSheet(){
   const wkISO = document.getElementById('week-start').value;
   const sheet = `Week ${wkISO}`;
@@ -245,7 +247,7 @@ async function writeWholeDayToSheet(){
     const notes = getVal(`slot${slot}-notes`);
     const done = document.getElementById(`slot${slot}-done`).checked;
 
-    // skip totally empty rows except fixed 7/8 (we still write their name + notes if any)
+    // Skip empty rows for 1-6
     const isEmpty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
     if(isEmpty && slot<=6) continue;
 
@@ -271,10 +273,10 @@ async function writeWholeDayToSheet(){
   }
 }
 
-/***** LOG WHOLE DAY TO EXERCISE LOG (BATCH) *****/
+/***** Append whole day to Exercises log (batch) *****/
 async function logWholeDay(){
   const status = document.getElementById('ex-status');
-  const week_start = document.getElementById('week-start').value; // Monday ISO, e.g. 2025-10-13
+  const week_start = document.getElementById('week-start').value; // Monday ISO
   const dayLabel   = document.getElementById('ex-day').value;     // Monday | Wednesday | Friday
   const dateISO    = document.getElementById('ex-date').value || toISODate(new Date());
 
@@ -291,7 +293,6 @@ async function logWholeDay(){
     const notes     = getVal(`slot${slot}-notes`);
     const done      = document.getElementById(`slot${slot}-done`).checked;
 
-    // For slots 1-6, skip totally empty rows
     const empty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
     if (slot <= 6 && empty) continue;
 
@@ -314,7 +315,6 @@ async function logWholeDay(){
     setTimeout(()=> status.textContent = '', 2500);
   }
 }
-
 
 /*** Weight logging (append to Weights) ***/
 async function sendWeight(){
@@ -341,28 +341,32 @@ async function sendWeight(){
 function getVal(id){ const el = document.getElementById(id); return el ? (el.value ?? '').trim() : ''; }
 function a1(col, row){ return `${col}${row}`; }
 
-/*** MERGED robust POST with fallback ***/
+async function ensureJSON(res){
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')) {
+    throw new Error(`Non-JSON response (status ${res.status})`);
+  }
+  return res.json();
+}
+
+/*** robust POST with fallback ***/
 async function postJSON(obj){
-  if(!SHEET_WEBAPP || SHEET_WEBAPP.startsWith('PASTE_')) throw new Error('SHEET_WEBAPP not set');
+  if(!SHEET_WEBAPP || SHEET_WEBAPP.startsWith('PASTE_')) {
+    throw new Error('SHEET_WEBAPP not set');
+  }
 
   try {
     const res = await fetch(SHEET_WEBAPP, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(obj),
-      credentials: 'omit' // safer when running from file://
+      credentials: 'omit'
     });
-
-    const ct = (res.headers.get('content-type') || '').toLowerCase();
-    if (ct.includes('application/json')) {
-      const json = await res.json();
-      if(!json.ok) throw new Error(json.error || 'request failed');
-      return json;
-    }
-    // Non-JSON (often a login page) -> use fallback
-    throw new Error('Non-JSON response');
-  } catch (_) {
-    // Fire-and-forget fallback for local usage / opaque responses
+    const json = await ensureJSON(res);
+    if(!json.ok) throw new Error(json.error || 'request failed');
+    return json;
+  } catch (err) {
+    // Last-ditch fire-and-forget (opaque) — for local file:// cases
     await fetch(SHEET_WEBAPP, {
       method: 'POST',
       mode: 'no-cors',
@@ -372,4 +376,11 @@ async function postJSON(obj){
     });
     return { ok: true, via: 'no-cors' };
   }
+}
+
+/*** quick connectivity check (optional) ***/
+async function checkConnection(){
+  const res = await fetch(`${SHEET_WEBAPP}?ping=1`);
+  const j = await ensureJSON(res);
+  console.log("proxy:", j);
 }

@@ -1,33 +1,34 @@
 // Netlify Function: CORS proxy -> Google Apps Script Web App (/exec)
-// Set env var GAS_EXEC_URL in Netlify dashboard to your /exec URL.
+// Needs env var GAS_EXEC_URL set to your Apps Script /exec URL.
 
-const ALLOW_ORIGIN = "*"; // or your domain e.g. "https://yoursite.com"
+const ALLOW_ORIGIN = "*"; // or "https://campheindel.netlify.app"
 
 export default async (req, context) => {
-  const target = process.env.GAS_EXEC_URL;
-  if (!target) {
-    return new Response(JSON.stringify({ ok:false, error:"Missing GAS_EXEC_URL env var" }), {
-      status: 500,
-      headers: corsHeaders(),
-    });
-  }
-
-  // Handle preflight quickly
+  // Preflight fast-path
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
-  // Build target URL (preserve query, e.g. ?fn=echo)
+  // Healthcheck: /.netlify/functions/gas-proxy?ping=1
   const inUrl = new URL(req.url);
+  if (inUrl.searchParams.get("ping")) {
+    return json({ ok: true, proxy: "ready" }, 200);
+  }
+
+  const target = process.env.GAS_EXEC_URL;
+  if (!target) {
+    return json({ ok: false, error: "Missing GAS_EXEC_URL env var" }, 500);
+  }
+
+  // Build upstream URL and preserve query string
   const outUrl = new URL(target);
   if (inUrl.search) outUrl.search = inUrl.search;
 
-  // Forward only content-type header; browsers add others we don’t need
+  // Only forward minimal headers needed
   const headers = new Headers();
   const ct = req.headers.get("content-type");
   if (ct) headers.set("content-type", ct);
 
-  // Forward body as a stream except for GET/HEAD
   const init = {
     method: req.method,
     headers,
@@ -38,21 +39,16 @@ export default async (req, context) => {
   try {
     const upstream = await fetch(outUrl.toString(), init);
 
-    // Stream back response + CORS
+    // Stream upstream body through; add CORS
     const resp = new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: upstream.headers,
     });
-
-    // Add CORS headers (and expose all so you can read JSON)
     addCors(resp.headers);
     return resp;
   } catch (err) {
-    return new Response(JSON.stringify({ ok:false, error:String(err) }), {
-      status: 502,
-      headers: corsHeaders(),
-    });
+    return json({ ok: false, error: String(err) }, 502);
   }
 };
 
@@ -66,5 +62,11 @@ function corsHeaders() {
 }
 function addCors(h) {
   const ch = corsHeaders();
-  Object.keys(ch).forEach(k => h.set(k, ch[k]));
+  Object.keys(ch).forEach((k) => h.set(k, ch[k]));
+}
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json", ...corsHeaders() },
+  });
 }
