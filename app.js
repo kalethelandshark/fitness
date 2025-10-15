@@ -1,18 +1,13 @@
 /***** CONFIG *****/
 const SHEET_WEBAPP = "/.netlify/functions/gas-proxy"; // Netlify proxy → GAS /exec
-const DEV_VERBOSE_ERRORS = true; // set false to restore silent fallback later
+const DEV_VERBOSE_ERRORS = true;
 
-/* Week layout your UI uses:
-   Monday rows:     7..14  (7-12 main, 13 Deadhangs, 14 Burpees)
-   Wednesday rows:  18..25
-   Friday rows:     29..36
-   Columns B..I: B=Exercise, C=Variation, D=Sets, E=Reps, F=Weight, G=RPE, H=Notes, I=Done
-*/
+/* Week layout */
 const DAY_ROW_BASE = { Monday: 7, Wednesday: 18, Friday: 29 };
 const SLOTS_PER_DAY = 8;
 const COLS = { exercise:'B', variation:'C', sets:'D', reps:'E', weight:'F', rpe:'G', notes:'H', done:'I' };
 
-// Exercise list (slots 1–6). 7=Deadhangs, 8=Burpees fixed.
+/* Exercises */
 const EXERCISES = [
   "Pushup","Dip","Pike Pushup","Elevated Pike","Wall HSPU","Pullup","Chinup",
   "Back Row","Back Row Elevated","Tuck Lever","Front Lever","Squat","Assisted Pistol",
@@ -23,7 +18,7 @@ const FIXED_SLOT8 = "Burpees";
 
 /***** THEME *****/
 function initTheme(){
-  const btn = document.getElementById('dark-toggle');
+  const btn = byId('dark-toggle');
   const saved = localStorage.getItem('dark') === '1';
   if(saved) document.body.classList.add('dark');
   if(btn){
@@ -36,11 +31,11 @@ function initTheme(){
 
 /***** OVERVIEW (index.html) *****/
 async function loadOverview(){
-  const wrap = document.getElementById('weeks');
-  wrap.innerHTML = 'Loading…';
+  const wrap = byId('weeks');
+  if(!wrap) return;
+  wrap.textContent = 'Loading…';
   try{
-    const url = `${SHEET_WEBAPP}?fn=overview&limit=8`;
-    const res = await fetch(url);
+    const res = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=8`);
     const json = await ensureJSON(res);
     if(!json.ok) throw new Error(json.error || 'overview error');
 
@@ -56,9 +51,7 @@ async function loadOverview(){
       `;
       wrap.appendChild(div);
     });
-    if (json.weeks.length === 0){
-      wrap.textContent = 'No weeks yet. Head to the entry page to create your first week.';
-    }
+    if (json.weeks.length === 0) wrap.textContent = 'No weeks yet. Head to the entry page.';
   }catch(err){
     console.error(err);
     wrap.textContent = 'Failed to load overview.';
@@ -67,49 +60,44 @@ async function loadOverview(){
 
 /***** ENTRY (entry.html) *****/
 function initEntryPage(){
-  // default the Week input to this week's Monday
-  const today = new Date();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay()+6)%7));
-  const wkISO = toISODate(monday);
-  const weekInput = document.getElementById('week-start');
-  if (weekInput) weekInput.value = wkISO;
+  const weekInput = byId('week-start');
+  if (weekInput) {
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay()+6)%7));
+    weekInput.value = toISODate(monday);
+  }
 
-  // populate existing weeks
   loadWeeksForEntry();
 
-  // wire actions
-  byId('ensure-week').addEventListener('click', ensureWeek);
-  byId('weight-send').addEventListener('click', sendWeight);
-  byId('write-day-cells').addEventListener('click', writeWholeDayToSheet);
-  byId('log-day').addEventListener('click', logWholeDay);
+  listen('ensure-week', 'click', ensureWeek);
+  listen('weight-send', 'click', sendWeight);
+  listen('write-day-cells', 'click', writeWholeDayToSheet);
+  listen('log-day', 'click', logWholeDay);
 
-  // Use selected week dropdown → copies date to input
-  byId('use-week').addEventListener('click', ()=>{
+  listen('use-week', 'click', ()=>{
     const sel = byId('week-select');
+    if(!sel) return;
     const name = sel.value;
     if(!name) return;
-    weekInput.value = isoFromWeekName(name);
+    if (weekInput) weekInput.value = isoFromWeekName(name);
     setStatus('ensure-status', `selected: ${name}`, 2000);
   });
-  byId('week-select').addEventListener('change', (e)=>{
+  listen('week-select', 'change', (e)=>{
     const name = e.target.value;
-    if(name) weekInput.value = isoFromWeekName(name);
+    if (name && weekInput) weekInput.value = isoFromWeekName(name);
   });
 
-  // Build table
-  buildDayTable();
-
-  // optional: console check
+  buildDayTable(); // ← make rows appear
   checkConnection().catch(()=>{});
 }
 
 async function loadWeeksForEntry(){
   const sel = byId('week-select');
+  if(!sel) return;
   try{
     const res = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=200`);
     const json = await ensureJSON(res);
-
     sel.innerHTML = '';
     if(!json.ok || !json.weeks || json.weeks.length === 0){
       sel.innerHTML = `<option value="">No weeks yet</option>`;
@@ -129,7 +117,7 @@ async function loadWeeksForEntry(){
 }
 
 async function ensureWeek(){
-  const wk = byId('week-start').value;
+  const wk = val('week-start');
   const status = 'ensure-status';
   if(!wk){ setStatus(status,'pick a Monday date'); return; }
   setStatus(status,'creating…');
@@ -137,24 +125,23 @@ async function ensureWeek(){
     await postJSON({type:'ensure_week', week_start: wk});
     setStatus(status, `ready: Week ${wk}`, 2000);
     await loadWeeksForEntry();
-    // select in dropdown if present
     const sel = byId('week-select');
-    [...sel.options].forEach(o => { if (o.value === `Week ${wk}`) sel.value = o.value; });
+    if (sel) [...sel.options].forEach(o => { if (o.value === `Week ${wk}`) sel.value = o.value; });
   }catch(e){
     console.error(e);
-    setStatus(status,'error');
+    setStatus(status, 'error: ' + e.message);
   }
 }
 
+/***** Build 8 rows *****/
 function buildDayTable(){
   const tbody = document.querySelector('#ex-table tbody');
+  if(!tbody) return;
   tbody.innerHTML = '';
   for(let slot=1; slot<=SLOTS_PER_DAY; slot++){
     const tr = document.createElement('tr');
 
-    const tdSlot = document.createElement('td');
-    tdSlot.textContent = slot;
-    tr.appendChild(tdSlot);
+    tr.appendChild(tdText(slot));
 
     const tdEx = document.createElement('td');
     if(slot<=6){
@@ -193,10 +180,13 @@ function buildDayTable(){
     tbody.appendChild(tr);
   }
 }
+function simpleCell(id, type){ const td=document.createElement('td'); const inp=document.createElement('input'); inp.type=type; inp.id=id; td.appendChild(inp); return td; }
+function tdText(s){ const td=document.createElement('td'); td.textContent=s; return td; }
 
+/***** Write all cells for the day *****/
 async function writeWholeDayToSheet(){
-  const wkISO = byId('week-start').value;
-  const dayName = byId('ex-day').value;
+  const wkISO = val('week-start');
+  const dayName = val('ex-day');
   const status = 'ex-status';
   if(!wkISO){ setStatus(status,'set week'); return; }
   const baseRow = DAY_ROW_BASE[dayName];
@@ -212,7 +202,7 @@ async function writeWholeDayToSheet(){
     const weight    = val(`slot${slot}-weight`);
     const rpe       = val(`slot${slot}-rpe`);
     const notes     = val(`slot${slot}-notes`);
-    const done      = byId(`slot${slot}-done`).checked;
+    const done      = byId(`slot${slot}-done`)?.checked;
 
     const empty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
     if (slot <= 6 && empty) continue;
@@ -232,15 +222,16 @@ async function writeWholeDayToSheet(){
     await postJSON({type:'write_cells', sheet:`Week ${wkISO}`, cells});
     setStatus(status,'day saved ✓', 2000);
   }catch(e){
-    console.error(e); setStatus(status,'error');
+    console.error(e); setStatus(status,'error: ' + e.message);
   }
 }
 
+/***** Append to Exercises log *****/
 async function logWholeDay(){
   const status = 'ex-status';
-  const week_start = byId('week-start').value;
-  const dayLabel   = byId('ex-day').value;
-  const dateISO    = byId('ex-date').value || toISODate(new Date());
+  const week_start = val('week-start');
+  const dayLabel   = val('ex-day');
+  const dateISO    = val('ex-date') || toISODate(new Date());
   if(!week_start){ setStatus(status,'set week'); return; }
 
   const rows = [];
@@ -252,7 +243,7 @@ async function logWholeDay(){
     const weight    = val(`slot${slot}-weight`);
     const rpe       = val(`slot${slot}-rpe`);
     const notes     = val(`slot${slot}-notes`);
-    const done      = byId(`slot${slot}-done`).checked;
+    const done      = byId(`slot${slot}-done`)?.checked;
 
     const empty = !exercise && !variation && !sets && !reps && !weight && !rpe && !notes && !done;
     if (slot <= 6 && empty) continue;
@@ -267,15 +258,16 @@ async function logWholeDay(){
     await postJSON({ type:'exercise_batch', rows });
     setStatus(status,'logged ✓', 2000);
   }catch(e){
-    console.error(e); setStatus(status,'error');
+    console.error(e); setStatus(status,'error: ' + e.message);
   }
 }
 
+/***** Quick weight *****/
 async function sendWeight(){
-  const user   = byId('weight-user').value.trim();
-  const day    = byId('weight-day').value.trim() || weekdayLabel(new Date());
-  const date   = byId('weight-date').value || toISODate(new Date());
-  const weight = byId('weight-value').value;
+  const user   = val('weight-user');
+  const day    = val('weight-day') || weekdayLabel(new Date());
+  const date   = val('weight-date') || toISODate(new Date()); // input[type=date] gives yyyy-mm-dd
+  const weight = val('weight-value');
   const status = 'weight-status';
 
   if(!weight){ setStatus(status,'enter a weight'); return; }
@@ -284,7 +276,7 @@ async function sendWeight(){
     await postJSON({ type:'weight', user, day, date, weight });
     setStatus(status,'saved ✓', 2000);
   }catch(e){
-    console.error(e); setStatus(status,'error');
+    console.error(e); setStatus(status,'error: ' + e.message);
   }
 }
 
@@ -295,56 +287,40 @@ function a1(col,row){ return `${col}${row}`; }
 function toISODate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function weekdayLabel(d){ return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] }
 function isoFromWeekName(name){ return name.replace(/^Week\s+/, '').trim(); }
-function setStatus(id, msg, clearMs){
-  const el = byId(id); if(!el) return;
-  el.textContent = msg || '';
-  if (clearMs) setTimeout(()=>{ el.textContent=''; }, clearMs);
-}
+function setStatus(id, msg, clearMs){ const el=byId(id); if(!el) return; el.textContent=msg||''; if(clearMs) setTimeout(()=>{ el.textContent=''; }, clearMs); }
+function listen(id, ev, fn){ const el=byId(id); if(el) el.addEventListener(ev, fn); }
 
-// Strict JSON checker (surfaces 500s instead of hiding them)
 async function ensureJSON(res){
   const ct = (res.headers.get('content-type') || '').toLowerCase();
   if (!ct.includes('application/json')) {
     const text = await res.text();
-    throw new Error(`Non-JSON response (status ${res.status}): ${text.slice(0,180)}`);
+    throw new Error(`Non-JSON (status ${res.status}): ${text.slice(0,180)}`);
   }
   return res.json();
 }
-
-// Debug-friendly POST (no silent no-cors fallback while we’re fixing writes)
 async function postJSON(obj){
   if(!SHEET_WEBAPP) throw new Error('SHEET_WEBAPP not set');
-
   const res = await fetch(SHEET_WEBAPP, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify(obj),
     credentials: 'omit'
   });
-
-  if (DEV_VERBOSE_ERRORS) {
-    const json = await ensureJSON(res);
-    if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
-    return json;
-  } else {
-    try {
-      const json = await ensureJSON(res);
-      if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
-      return json;
-    } catch (_e) {
-      // optional: uncomment for silent fire-and-forget in production
-      // await fetch(SHEET_WEBAPP, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj) });
-      throw _e;
-    }
-  }
+  const json = await ensureJSON(res);
+  if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
+  return json;
 }
-
 async function checkConnection(){
   try{
     const res = await fetch(`${SHEET_WEBAPP}?ping=1`);
     const j = await ensureJSON(res);
     console.log('proxy:', j);
-  }catch(e){
-    console.warn('proxy ping failed', e);
-  }
+  }catch(e){ console.warn('proxy ping failed', e); }
 }
+
+/***** AUTO-BOOTSTRAP on page load *****/
+document.addEventListener('DOMContentLoaded', ()=>{
+  initTheme();
+  if (byId('weeks')) loadOverview();
+  if (byId('entry-root')) initEntryPage();  // make sure your entry.html wraps content in an element with id="entry-root"
+});
