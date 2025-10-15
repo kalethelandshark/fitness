@@ -300,16 +300,23 @@ async function ensureJSON(res){
 }
 async function postJSON(obj){
   if(!SHEET_WEBAPP) throw new Error('SHEET_WEBAPP not set');
+
   const res = await fetch(SHEET_WEBAPP, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(obj),
-    credentials: 'omit'
+    credentials: 'omit',
+    // 🔧 Chrome/Chromium now requires this when a body is present
+    duplex: 'half',
+    // optional, helps on tab-close navigations
+    keepalive: true,
   });
+
   const json = await ensureJSON(res);
   if(!json.ok) throw new Error(json.error || `Failed (${res.status})`);
   return json;
 }
+
 async function checkConnection(){
   try{
     const res = await fetch(`${SHEET_WEBAPP}?ping=1`);
