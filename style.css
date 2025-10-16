@@ -51,9 +51,8 @@ body.dark td input, body.dark td select{
 .mini-sheet td:nth-last-child(1) { text-align:center; width: 2.2rem; } /* ✓ column */
 .mini-sheet th:nth-last-child(1) { text-align:center; width: 2.2rem; }
 
-.charts { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1rem; }
-.chart-card { background: var(--card-bg,#fff); border:1px solid var(--border,#e6e6e6); border-radius:12px; padding:.75rem .9rem; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.chart-wrap { height: 180px; } /* small */
+.charts { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.chart-wrap { height: 180px; }
 .mb4 { margin-bottom:.4rem; }
 .small { font-size:.9rem; }
 .muted { opacity:.75; }

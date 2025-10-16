@@ -358,45 +358,58 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (byId('entry-root')) initEntryPage();  // make sure your entry.html wraps content in an element with id="entry-root"
 });
 
-/***** DASHBOARD (compact) *****/
+/***** DASHBOARD (pick week that contains today + new reps-by-day chart) *****/
 async function initDashboard(){
   const root = document.getElementById('dashboard-root');
   if (!root) return;
 
-  // latest week
-  const ovRes = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=1`);
-  const ov = await ovRes.json();
-  if (!ov.ok || !ov.weeks?.length){
-    qs('#current-week-meta').textContent = 'No weeks yet';
-    return;
-  }
-  const weekStart = ov.weeks[0].week_start;
-  qs('#current-week-meta').textContent = `Week ${weekStart}`;
+  // 1) fetch recent weeks and choose the one containing "today"
+  const ov = await (await fetch(`${SHEET_WEBAPP}?fn=overview&limit=52`)).json();
+  const weekStart = chooseWeekForToday(ov?.weeks || []);
+  document.getElementById('current-week-meta').textContent = weekStart ? `Week ${weekStart}` : 'No weeks yet';
+  if (!weekStart) return;
 
-  // gids
+  // 2) gids
   const diag = await (await fetch(`${SHEET_WEBAPP}?fn=diag`)).json();
   const gid = name => (diag.sheets || []).find(s => s.name === name)?.gid;
-  const gidWeek = gid(`Week ${weekStart}`);
-  const gidWeights = gid('Weights');
+  const gidWeek      = gid(`Week ${weekStart}`);
+  const gidWeights   = gid('Weights');
   const gidExercises = gid('Exercises');
 
-  // current week blocks (template coordinates)
+  // 3) render week blocks
   await renderWeekBlock(gidWeek, { dateCell:'C6',  range:'B9:I16',  bodyId:'mon-body', labelId:'mon-date' });
   await renderWeekBlock(gidWeek, { dateCell:'C20', range:'B23:I30', bodyId:'wed-body', labelId:'wed-date' });
   await renderWeekBlock(gidWeek, { dateCell:'C33', range:'B36:I43', bodyId:'fri-body', labelId:'fri-date' });
 
-  // charts
+  // 4) charts
   const weights   = gidWeights   ? await fetchTab(gidWeights,   { headerRow: 1 }) : { headers:[], rows:[] };
   const exercises = gidExercises ? await fetchTab(gidExercises, { headerRow: 1 }) : { headers:[], rows:[] };
 
   drawWeightChart('weight-chart', weights);
   drawRepsChart('reps-chart', exercises);
+
+  // NEW: reps-by-day (current week) — lines per exercise, x-axis = Mon/Wed/Fri
+  drawRepsByDayChart('reps-weekday-chart', exercises, weekStart);
+}
+
+function chooseWeekForToday(weeks){
+  if (!weeks.length) return null;
+  // weeks: [{week_start: 'YYYY-MM-DD', ...}]
+  const today = new Date(); today.setHours(0,0,0,0);
+  const within = weeks.find(w => {
+    const start = new Date(w.week_start + 'T00:00:00');
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return today >= start && today <= end;
+  });
+  if (within) return within.week_start;
+  // fallback: newest
+  return weeks.slice().sort((a,b)=> a.week_start < b.week_start ? 1 : -1)[0].week_start;
 }
 
 async function renderWeekBlock(gid, { dateCell, range, bodyId, labelId }){
   if (!gid) return;
-  const label = qs('#'+labelId);
-  const body  = qs('#'+bodyId);
+  const label = document.getElementById(labelId);
+  const body  = document.getElementById(bodyId);
   if (!label || !body) return;
 
   const d = await (await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(dateCell)}`)).json();
@@ -405,7 +418,7 @@ async function renderWeekBlock(gid, { dateCell, range, bodyId, labelId }){
   const r = await (await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(range)}`)).json();
   const rows = (r.rows || [])
     .filter(row => row.some(c => String(c).trim() !== ''))
-    .slice(0, 8); // keep it tight
+    .slice(0, 8);
 
   body.innerHTML = '';
   for (const row of rows) {
@@ -428,29 +441,25 @@ async function fetchTab(gid, opts){
   return res.json();
 }
 
+/* existing charts (small) */
 function drawWeightChart(canvasId, weights){
   const ctx = document.getElementById(canvasId).getContext('2d');
   const data = weights.rows
     .map(r => ({ date: r[3], w: Number(r[4]) }))
     .filter(x => x.date && !isNaN(x.w))
     .sort((a,b)=> a.date < b.date ? -1 : 1);
-
-  const chart = new Chart(ctx, {
+  return new Chart(ctx, {
     type: 'line',
-    data: { labels: data.map(d=>d.date), datasets: [{ label:'Bodyweight', data: data.map(d=>d.w), tension:.3, pointRadius:2, pointHoverRadius:4, fill:false }] },
+    data: { labels: data.map(d=>d.date), datasets: [{ label:'Bodyweight', data: data.map(d=>d.w), tension:.35, pointRadius:2, fill:false }] },
     options: smallChartOptions()
   });
-  return chart;
 }
-
 function drawRepsChart(canvasId, exlog){
   const h = headerIndex(exlog.headers);
   const byWeek = new Map();
   for (const r of exlog.rows || []) {
     const wk = r[h.week_start] || '';
-    const repsStr = (r[h.reps] || '').toString();
-    const firstNum = Number((repsStr.match(/\d+(\.\d+)?/) || [])[0]);
-    const reps = isNaN(firstNum) ? 0 : firstNum;
+    const reps = parseFirstNumber(r[h.reps]);
     byWeek.set(wk, (byWeek.get(wk) || 0) + reps);
   }
   const entries = [...byWeek.entries()].sort((a,b)=> a[0] < b[0] ? -1 : 1);
@@ -462,24 +471,65 @@ function drawRepsChart(canvasId, exlog){
   });
 }
 
-function smallChartOptions(){
+/* NEW: multi-line (x = Mon/Wed/Fri), each line = exercise, current week */
+function drawRepsByDayChart(canvasId, exlog, week_start){
+  const h = headerIndex(exlog.headers); // {week_start, day, exercise, reps}
+  // Collect exercises -> [Mon, Wed, Fri] reps
+  const daysOrder = ['Monday','Wednesday','Friday'];
+  const byEx = new Map();
+
+  for (const r of exlog.rows || []) {
+    if ((r[h.week_start] || '') !== week_start) continue;
+    const day = r[h.day] || '';
+    if (!daysOrder.includes(day)) continue;
+    const ex = r[h.exercise] || '';
+    const reps = parseFirstNumber(r[h.reps]);
+    if (!ex) continue;
+    if (!byEx.has(ex)) byEx.set(ex, { Monday:0, Wednesday:0, Friday:0 });
+    byEx.get(ex)[day] += reps;
+  }
+
+  const labels = daysOrder; // x-axis
+  const datasets = [...byEx.keys()].sort().map(ex => ({
+    label: ex,
+    data: labels.map(d => byEx.get(ex)[d] || 0),
+    tension: .3,
+    pointRadius: 2,
+    fill: false
+  }));
+
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: smallChartOptions({ legend: true })
+  });
+}
+
+function smallChartOptions(opts={}){
   return {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { display:false }, tooltip:{ mode:'index', intersect:false } },
+    plugins: { legend: { display: !!opts.legend }, tooltip:{ mode:'index', intersect:false } },
     scales: {
-      x: { grid: { display:false }, ticks: { maxRotation:0, autoSkip:true } },
-      y: { grid: { color: 'rgba(0,0,0,.05)' }, ticks: { precision:0 } }
+      x: { grid: { display:false }, ticks: { maxRotation:0, autoSkip:false } },
+      y: { grid: { color: 'rgba(0,0,0,.06)' }, ticks: { precision:0 } }
     },
     layout: { padding: { top: 4, right: 6, bottom: 0, left: 4 } }
   };
 }
-
 function headerIndex(headers){
   const idx = {};
   headers.forEach((h,i)=> idx[String(h||'').toLowerCase()] = i);
-  return { week_start: idx['week_start'], reps: idx['reps'] };
+  return {
+    week_start: idx['week_start'],
+    day:        idx['day'],
+    exercise:   idx['exercise'],
+    reps:       idx['reps']
+  };
 }
-function qs(sel){ return document.querySelector(sel); }
-
-
+function parseFirstNumber(v){
+  const s = (v ?? '').toString();
+  const m = s.match(/\d+(\.\d+)?/);
+  return m ? Number(m[0]) : 0;
+}
