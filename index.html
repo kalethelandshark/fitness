@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Weekly Trainer — Dashboard</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- Chart.js for quick graphs -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -17,39 +16,56 @@
 
   <main class="container" id="dashboard-root">
     <section class="panel">
-      <h2>Current week</h2>
-      <div id="current-week-meta" class="small muted"></div>
+      <div class="panel-head">
+        <h2>Current week</h2>
+        <span id="current-week-meta" class="muted small"></span>
+      </div>
 
-      <div class="week-grid">
-        <div>
-          <h3>Monday <span id="mon-date" class="small muted"></span></h3>
-          <table class="sheetlike"><thead>
-            <tr><th>Exercise</th><th>Variation</th><th>Sets</th><th>Reps</th><th>Weight</th><th>RPE</th><th>Notes</th><th>Done</th></tr>
+      <div class="week-cards">
+        <div class="card">
+          <div class="card-head">
+            <h3>Monday</h3><span id="mon-date" class="muted small"></span>
+          </div>
+          <table class="mini-sheet"><thead>
+            <tr><th>Exercise</th><th>Var</th><th>S</th><th>R</th><th>Wt</th><th>RPE</th><th>Notes</th><th>✓</th></tr>
           </thead><tbody id="mon-body"></tbody></table>
         </div>
-        <div>
-          <h3>Wednesday <span id="wed-date" class="small muted"></span></h3>
-          <table class="sheetlike"><thead>
-            <tr><th>Exercise</th><th>Variation</th><th>Sets</th><th>Reps</th><th>Weight</th><th>RPE</th><th>Notes</th><th>Done</th></tr>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Wednesday</h3><span id="wed-date" class="muted small"></span>
+          </div>
+          <table class="mini-sheet"><thead>
+            <tr><th>Exercise</th><th>Var</th><th>S</th><th>R</th><th>Wt</th><th>RPE</th><th>Notes</th><th>✓</th></tr>
           </thead><tbody id="wed-body"></tbody></table>
         </div>
-        <div>
-          <h3>Friday <span id="fri-date" class="small muted"></span></h3>
-          <table class="sheetlike"><thead>
-            <tr><th>Exercise</th><th>Variation</th><th>Sets</th><th>Reps</th><th>Weight</th><th>RPE</th><th>Notes</th><th>Done</th></tr>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Friday</h3><span id="fri-date" class="muted small"></span>
+          </div>
+          <table class="mini-sheet"><thead>
+            <tr><th>Exercise</th><th>Var</th><th>S</th><th>R</th><th>Wt</th><th>RPE</th><th>Notes</th><th>✓</th></tr>
           </thead><tbody id="fri-body"></tbody></table>
         </div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Trends</h2>
-      <div class="chart-toolbar">
-        <button id="btn-weight" class="btn">Bodyweight</button>
-        <button id="btn-reps" class="btn">Total reps / week</button>
+      <div class="panel-head">
+        <h2>Trends</h2>
+        <span class="muted small">Full history</span>
       </div>
-      <canvas id="main-chart" height="120"></canvas>
-      <div id="chart-meta" class="small muted"></div>
+      <div class="charts">
+        <div class="chart-card">
+          <div class="small muted mb4">Bodyweight</div>
+          <div class="chart-wrap"><canvas id="weight-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="small muted mb4">Total reps / week</div>
+          <div class="chart-wrap"><canvas id="reps-chart"></canvas></div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -62,23 +78,9 @@
 
   <script src="app.js"></script>
   <script>
-    // boot the existing bits + the dashboard
     initTheme();
     loadOverview();
-    initDashboard();  // <-- new
+    initDashboard();
   </script>
-
-  <style>
-    /* a few small tweaks to look “sheet-like” */
-    .sheetlike { width:100%; border-collapse: collapse; }
-    .sheetlike th, .sheetlike td { border:1px solid var(--border,#ddd); padding:.4rem; }
-    .sheetlike th { background: var(--muted-bg, #f6f6f6); text-align:left; }
-    .week-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:1rem; }
-    .chart-toolbar { display:flex; gap:.5rem; margin-bottom:.5rem; }
-    .btn { padding:.35rem .7rem; border:1px solid var(--border,#ddd); border-radius:.5rem; background:var(--btn-bg,#f8f8f8); cursor:pointer; }
-    .btn:focus { outline:2px solid #5b9; }
-    .small { font-size:.9rem; }
-    .muted { opacity:.7; }
-  </style>
 </body>
 </html>
