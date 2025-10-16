@@ -358,142 +358,128 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if (byId('entry-root')) initEntryPage();  // make sure your entry.html wraps content in an element with id="entry-root"
 });
 
-/***** DASHBOARD *****/
+/***** DASHBOARD (compact) *****/
 async function initDashboard(){
   const root = document.getElementById('dashboard-root');
   if (!root) return;
 
-  // 1) Find latest week from overview
-  const ov  = await (await fetch(`${SHEET_WEBAPP}?fn=overview&limit=1`)).json();
-  if (!ov.ok || !ov.weeks || !ov.weeks.length){ 
-    document.getElementById('current-week-meta').textContent = 'No weeks yet.';
+  // latest week
+  const ovRes = await fetch(`${SHEET_WEBAPP}?fn=overview&limit=1`);
+  const ov = await ovRes.json();
+  if (!ov.ok || !ov.weeks?.length){
+    qs('#current-week-meta').textContent = 'No weeks yet';
     return;
   }
   const weekStart = ov.weeks[0].week_start;
-  document.getElementById('current-week-meta').textContent = `Week ${weekStart}`;
+  qs('#current-week-meta').textContent = `Week ${weekStart}`;
 
-  // 2) Find gids for the week tab, Weights, and Exercises
+  // gids
   const diag = await (await fetch(`${SHEET_WEBAPP}?fn=diag`)).json();
-  const getGid = (name) => (diag.sheets || []).find(s => s.name === name)?.gid;
-  const gidWeek = getGid(`Week ${weekStart}`);
-  const gidWeights = getGid('Weights');
-  const gidExercises = getGid('Exercises');
+  const gid = name => (diag.sheets || []).find(s => s.name === name)?.gid;
+  const gidWeek = gid(`Week ${weekStart}`);
+  const gidWeights = gid('Weights');
+  const gidExercises = gid('Exercises');
 
-  // 3) Render current week blocks by reading the week tab (same layout as your template)
-  // Dates are in C6, C20, C33; blocks are B9:I16, B23:I30, B36:I43 (8 rows each)
+  // current week blocks (template coordinates)
   await renderWeekBlock(gidWeek, { dateCell:'C6',  range:'B9:I16',  bodyId:'mon-body', labelId:'mon-date' });
   await renderWeekBlock(gidWeek, { dateCell:'C20', range:'B23:I30', bodyId:'wed-body', labelId:'wed-date' });
   await renderWeekBlock(gidWeek, { dateCell:'C33', range:'B36:I43', bodyId:'fri-body', labelId:'fri-date' });
 
-  // 4) Build charts
-  const chartEl = document.getElementById('main-chart');
-  const ctx = chartEl.getContext('2d');
-  const meta = document.getElementById('chart-meta');
-  let chart = null;
+  // charts
+  const weights   = gidWeights   ? await fetchTab(gidWeights,   { headerRow: 1 }) : { headers:[], rows:[] };
+  const exercises = gidExercises ? await fetchTab(gidExercises, { headerRow: 1 }) : { headers:[], rows:[] };
 
-  // Fetch all weight rows
-  const weights = gidWeights ? await fetchTab(gidWeights, { headerRow: 1 }) : { headers:[], rows:[] };
-  // Fetch all exercise rows
-  const exlog   = gidExercises ? await fetchTab(gidExercises, { headerRow: 1 }) : { headers:[], rows:[] };
-
-  const drawWeight = () => {
-    const data = weights.rows
-      .map(r => ({ date: r[3], w: Number(r[4]) }))
-      .filter(x => x.date && !isNaN(x.w))
-      .sort((a,b)=> a.date < b.date ? -1 : 1);
-    const labels = data.map(d => d.date);
-    const values = data.map(d => d.w);
-    return renderLineChart(ctx, labels, values, 'Bodyweight (lb/kg)');
-  };
-
-  const drawRepsPerWeek = () => {
-    // ex headers: [timestamp,user,week_start,day,date,slot,exercise,variation,sets,reps,weight,rpe,notes,done]
-    const h = indexHeaders(exlog.headers);
-    const byWeek = new Map();
-    for (const r of exlog.rows) {
-      const wk = r[h.week_start] || '';
-      const repsStr = (r[h.reps] || '').toString();
-      // allow "8", "5x3" etc — try to parse the first number
-      const firstNum = Number((repsStr.match(/\d+(\.\d+)?/) || [])[0]);
-      const reps = isNaN(firstNum) ? 0 : firstNum;
-      byWeek.set(wk, (byWeek.get(wk) || 0) + reps);
-    }
-    const entries = [...byWeek.entries()].sort((a,b)=> a[0] < b[0] ? -1 : 1);
-    const labels = entries.map(e => e[0]);
-    const values = entries.map(e => e[1]);
-    return renderBarChart(ctx, labels, values, 'Total reps per week');
-  };
-
-  // default view
-  chart = drawWeight();
-  meta.textContent = 'From the Weights tab';
-
-  // buttons
-  document.getElementById('btn-weight').addEventListener('click', ()=>{
-    chart.destroy(); chart = drawWeight();
-    meta.textContent = 'From the Weights tab';
-  });
-  document.getElementById('btn-reps').addEventListener('click', ()=>{
-    chart.destroy(); chart = drawRepsPerWeek();
-    meta.textContent = 'From the Exercises log';
-  });
+  drawWeightChart('weight-chart', weights);
+  drawRepsChart('reps-chart', exercises);
 }
 
 async function renderWeekBlock(gid, { dateCell, range, bodyId, labelId }){
-  const body = document.getElementById(bodyId);
-  const label= document.getElementById(labelId);
-  if (!gid || !body || !label) return;
+  if (!gid) return;
+  const label = qs('#'+labelId);
+  const body  = qs('#'+bodyId);
+  if (!label || !body) return;
 
-  const dateRes = await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(dateCell)}`);
-  const dateJson = await dateRes.json();
-  label.textContent = (dateJson.rows?.[0]?.[0]) || '';
+  const d = await (await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(dateCell)}`)).json();
+  label.textContent = d.rows?.[0]?.[0] || '';
 
-  const res = await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(range)}`);
-  const json = await res.json(); // rows: [[Exercise,Variation,Sets,Reps,Weight,RPE,Notes,Done], ...]
-  const rows = (json.rows || []).filter(r => r.some(c => String(c).trim() !== ''));
+  const r = await (await fetch(`${SHEET_WEBAPP}?fn=tab_dump&gid=${gid}&rangeA1=${encodeURIComponent(range)}`)).json();
+  const rows = (r.rows || [])
+    .filter(row => row.some(c => String(c).trim() !== ''))
+    .slice(0, 8); // keep it tight
+
   body.innerHTML = '';
-  for (const r of rows) {
-    const tr = document.createElement('tr');
-    const cells = [
-      r[0]||'', r[1]||'', r[2]||'', r[3]||'', r[4]||'', r[5]||'', r[6]||'', r[7]===true ? '✓' : ''
+  for (const row of rows) {
+    const tds = [
+      row[0]||'', row[1]||'', row[2]||'', row[3]||'',
+      row[4]||'', row[5]||'', row[6]||'', row[7]===true ? '✓' : ''
     ];
-    cells.forEach(v => { const td=document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+    const tr = document.createElement('tr');
+    tds.forEach(v => { const td=document.createElement('td'); td.textContent=v; tr.appendChild(td); });
     body.appendChild(tr);
   }
 }
 
-function indexHeaders(headers){
-  const idx = {};
-  headers.forEach((h,i)=> idx[String(h||'').toLowerCase()] = i);
-  // map common ones we use
-  return {
-    week_start: idx['week_start'],
-    reps: idx['reps']
-  };
-}
-
 async function fetchTab(gid, opts){
-  const params = new URLSearchParams({ fn:'tab_dump', gid:String(gid) });
-  if (opts?.headerRow) params.set('headerRow', String(opts.headerRow));
-  if (opts?.limit) params.set('limit', String(opts.limit));
-  if (opts?.rangeA1) params.set('rangeA1', opts.rangeA1);
-  const res = await fetch(`${SHEET_WEBAPP}?${params.toString()}`);
+  const p = new URLSearchParams({ fn:'tab_dump', gid:String(gid) });
+  if (opts?.headerRow) p.set('headerRow', String(opts.headerRow));
+  if (opts?.limit)     p.set('limit', String(opts.limit));
+  if (opts?.rangeA1)   p.set('rangeA1', opts.rangeA1);
+  const res = await fetch(`${SHEET_WEBAPP}?${p.toString()}`);
   return res.json();
 }
 
-/***** Simple Chart.js wrappers *****/
-function renderLineChart(ctx, labels, data, label){
-  return new Chart(ctx, {
+function drawWeightChart(canvasId, weights){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const data = weights.rows
+    .map(r => ({ date: r[3], w: Number(r[4]) }))
+    .filter(x => x.date && !isNaN(x.w))
+    .sort((a,b)=> a.date < b.date ? -1 : 1);
+
+  const chart = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [{ label, data }] },
-    options: { responsive: true, maintainAspectRatio:false, scales: { x: { ticks: { maxRotation: 0 } } } }
+    data: { labels: data.map(d=>d.date), datasets: [{ label:'Bodyweight', data: data.map(d=>d.w), tension:.3, pointRadius:2, pointHoverRadius:4, fill:false }] },
+    options: smallChartOptions()
   });
+  return chart;
 }
-function renderBarChart(ctx, labels, data, label){
+
+function drawRepsChart(canvasId, exlog){
+  const h = headerIndex(exlog.headers);
+  const byWeek = new Map();
+  for (const r of exlog.rows || []) {
+    const wk = r[h.week_start] || '';
+    const repsStr = (r[h.reps] || '').toString();
+    const firstNum = Number((repsStr.match(/\d+(\.\d+)?/) || [])[0]);
+    const reps = isNaN(firstNum) ? 0 : firstNum;
+    byWeek.set(wk, (byWeek.get(wk) || 0) + reps);
+  }
+  const entries = [...byWeek.entries()].sort((a,b)=> a[0] < b[0] ? -1 : 1);
+  const ctx = document.getElementById(canvasId).getContext('2d');
   return new Chart(ctx, {
     type: 'bar',
-    data: { labels, datasets: [{ label, data }] },
-    options: { responsive: true, maintainAspectRatio:false, scales: { x: { ticks: { maxRotation: 0 } } } }
+    data: { labels: entries.map(e=>e[0]), datasets: [{ label:'Total reps', data: entries.map(e=>e[1]) }] },
+    options: smallChartOptions()
   });
 }
+
+function smallChartOptions(){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display:false }, tooltip:{ mode:'index', intersect:false } },
+    scales: {
+      x: { grid: { display:false }, ticks: { maxRotation:0, autoSkip:true } },
+      y: { grid: { color: 'rgba(0,0,0,.05)' }, ticks: { precision:0 } }
+    },
+    layout: { padding: { top: 4, right: 6, bottom: 0, left: 4 } }
+  };
+}
+
+function headerIndex(headers){
+  const idx = {};
+  headers.forEach((h,i)=> idx[String(h||'').toLowerCase()] = i);
+  return { week_start: idx['week_start'], reps: idx['reps'] };
+}
+function qs(sel){ return document.querySelector(sel); }
+
 
